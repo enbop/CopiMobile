@@ -12,6 +12,7 @@ import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.IBinder
+import android.util.Log
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -28,6 +29,7 @@ import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import androidx.documentfile.provider.DocumentFile
 import com.enbop.copimobile.ui.theme.CopiMobileTheme
+import uniffi.copi_mobile_binding.LogLevel
 import java.io.BufferedReader
 import java.io.InputStreamReader
 
@@ -68,6 +70,9 @@ class MainActivity : ComponentActivity() {
             }
         }
 
+        uniffi.copi_mobile_binding.initLogger(LogLevel.INFO)
+        val v = uniffi.copi_mobile_binding.version()
+        Log.d("CopiMobileDebug", "Copi core version: $v")
         checkNotificationPermission()
         checkServiceStatus()
     }

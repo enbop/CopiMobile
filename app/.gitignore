@@ -1,2 +1,4 @@
 /build
 /src/main/assets/*.uf2
+/src/main/jniLibs
+/src/main/java/uniffi
