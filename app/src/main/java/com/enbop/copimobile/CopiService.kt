@@ -5,13 +5,29 @@ import android.content.Context
 import android.content.Intent
 import android.os.*
 import androidx.core.app.NotificationCompat
+import androidx.lifecycle.LiveData
+import androidx.lifecycle.MutableLiveData
 import java.net.NetworkInterface
 
+data class ServiceStatus(
+    val isRunning: Boolean,
+    val connectionInfo: String? = null
+)
+
 class CopiService : Service() {
+    companion object {
+        const val ACTION_START_SERVICE = "com.enbop.copimobile.action.START_SERVICE"
+        const val ACTION_STOP_SERVICE = "com.enbop.copimobile.action.STOP_SERVICE"
+
+        private val _serviceStatus = MutableLiveData<ServiceStatus>()
+        val serviceStatus: LiveData<ServiceStatus> = _serviceStatus
+
+        fun isServiceRunning() = _serviceStatus.value?.isRunning ?: false
+    }
+
     private val NOTIFICATION_CHANNEL_ID = "copi_service_channel"
     private val NOTIFICATION_ID = 1
     private val binder = LocalBinder()
-    private var isRunning = false
 
     inner class LocalBinder : Binder() {
         fun getService(): CopiService = this@CopiService
@@ -24,8 +40,27 @@ class CopiService : Service() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         when (intent?.action) {
-            ACTION_START_SERVICE -> startForegroundService()
-            ACTION_STOP_SERVICE -> stopService()
+            ACTION_START_SERVICE -> {
+                // TODO main copi core
+                val port = 8899
+
+                val notification = createNotification(port)
+                startForeground(NOTIFICATION_ID, notification)
+
+                _serviceStatus.postValue(ServiceStatus(
+                    isRunning = true,
+                    connectionInfo = "Running on port $port"
+                ))
+            }
+            ACTION_STOP_SERVICE -> {
+                stopForeground(true)
+                stopSelf()
+
+                _serviceStatus.postValue(ServiceStatus(
+                    isRunning = false,
+                    connectionInfo = null
+                ))
+            }
         }
         return START_STICKY
     }
@@ -46,16 +81,6 @@ class CopiService : Service() {
         notificationManager.createNotificationChannel(channel)
     }
 
-    private fun startForegroundService() {
-//        val ipAddress = getLocalIpAddress() ?: "Unknown"
-        val port = 8899
-
-        val notification = createNotification(port)
-        startForeground(NOTIFICATION_ID, notification)
-        isRunning = true
-        // TODO
-    }
-
     private fun createNotification(port: Int): Notification {
         val pendingIntent = Intent(this, MainActivity::class.java).let { notificationIntent ->
             PendingIntent.getActivity(this, 0, notificationIntent,
@@ -68,16 +93,6 @@ class CopiService : Service() {
             .setSmallIcon(R.drawable.ic_launcher_foreground)
             .setContentIntent(pendingIntent)
             .build()
-    }
-
-    private fun stopService() {
-        stopForeground(true)
-        stopSelf()
-        isRunning = false
-    }
-
-    fun isRunning(): Boolean {
-        return isRunning
     }
 
     fun getConnectionInfo(): String {
@@ -104,10 +119,5 @@ class CopiService : Service() {
             e.printStackTrace()
         }
         return null
-    }
-
-    companion object {
-        const val ACTION_START_SERVICE = "com.enbop.copimobile.action.START_SERVICE"
-        const val ACTION_STOP_SERVICE = "com.enbop.copimobile.action.STOP_SERVICE"
     }
 }

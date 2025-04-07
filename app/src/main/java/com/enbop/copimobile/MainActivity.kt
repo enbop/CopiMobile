@@ -54,6 +54,13 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+
+        CopiService.serviceStatus.observe(this) { status ->
+            isServiceRunning = status.isRunning
+            serviceStatus = status.connectionInfo
+        }
+        isServiceRunning = CopiService.isServiceRunning()
+
         enableEdgeToEdge()
         setContent {
             CopiMobileTheme {
@@ -116,10 +123,6 @@ class MainActivity : ComponentActivity() {
 
         startForegroundService(intent)
         bindToService()
-
-        // TODO add service running callback
-        isServiceRunning = true
-        serviceStatus = "Running on port 8899"
     }
 
     private fun stopCopiService() {
@@ -127,9 +130,6 @@ class MainActivity : ComponentActivity() {
             action = CopiService.ACTION_STOP_SERVICE
         }
         startService(intent)
-
-        isServiceRunning = false
-        serviceStatus = null
     }
 
     private fun bindToService() {
@@ -139,7 +139,6 @@ class MainActivity : ComponentActivity() {
                     val binder = service as CopiService.LocalBinder
                     copiService = binder.getService()
                     isServiceBound = true
-                    updateServiceStatus()
                 }
 
                 override fun onServiceDisconnected(name: ComponentName?) {
@@ -162,22 +161,10 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    private fun updateServiceStatus() {
-        if (isServiceBound && copiService != null) {
-            isServiceRunning = copiService!!.isRunning()
-            serviceStatus = if (isServiceRunning) {
-                copiService!!.getConnectionInfo()
-            } else {
-                null
-            }
-        }
-    }
-
     private fun checkServiceStatus() {
         val manager = getSystemService(Context.ACTIVITY_SERVICE) as ActivityManager
         for (service in manager.getRunningServices(Integer.MAX_VALUE)) {
             if (CopiService::class.java.name == service.service.className) {
-                isServiceRunning = true
                 bindToService()
                 break
             }
