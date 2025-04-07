@@ -3,10 +3,14 @@ package com.enbop.copimobile
 import android.app.*
 import android.content.Context
 import android.content.Intent
+import android.hardware.usb.UsbDevice
+import android.hardware.usb.UsbManager
 import android.os.*
+import android.util.Log
 import androidx.core.app.NotificationCompat
 import androidx.lifecycle.LiveData
 import androidx.lifecycle.MutableLiveData
+import uniffi.copi_mobile_binding.initUsbFd
 import java.net.NetworkInterface
 
 data class ServiceStatus(
@@ -41,7 +45,26 @@ class CopiService : Service() {
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         when (intent?.action) {
             ACTION_START_SERVICE -> {
-                // TODO main copi core
+                val usbManager = getSystemService(Context.USB_SERVICE) as UsbManager
+                val device: UsbDevice? = usbManager.deviceList.values.find {
+                    it.vendorId == 0x9527 && it.productId == 0xacdc
+                }
+                Log.d("USBLOG", "Device Found: ${device?.deviceName}, VendorId=${device?.vendorId}, ProductId=${device?.productId}")
+
+                if (device == null) {
+                    _serviceStatus.postValue(ServiceStatus(
+                        isRunning = false,
+                        connectionInfo = "No USB device found"
+                    ))
+                    stopForeground(true)
+                    stopSelf(startId)
+                    return START_NOT_STICKY
+                }
+
+                val pair = findInterfaces(device)!! // TODO
+
+                val connection = usbManager.openDevice(device)
+                initUsbFd(connection.fileDescriptor, pair.first, pair.second)
                 val port = 8899
 
                 val notification = createNotification(port)
@@ -119,5 +142,30 @@ class CopiService : Service() {
             e.printStackTrace()
         }
         return null
+    }
+}
+
+
+const val USB_INTR_CLASS_COMM = 0x02     // Communications Class
+const val USB_INTR_SUBCLASS_ACM = 0x02   // Abstract Control Model
+const val USB_INTR_CLASS_CDC_DATA = 0x0A // CDC Data
+
+fun findInterfaces(device: UsbDevice): Pair<Int, Int>? {
+    val interfaces = (0 until device.interfaceCount)
+        .map { device.getInterface(it) }
+
+    val commInterface = interfaces.find {
+        it.interfaceClass == USB_INTR_CLASS_COMM &&
+                it.interfaceSubclass == USB_INTR_SUBCLASS_ACM
+    }
+
+    val dataInterface = interfaces.find {
+        it.interfaceClass == USB_INTR_CLASS_CDC_DATA
+    }
+
+    return if (commInterface != null && dataInterface != null) {
+        Pair(commInterface.id, dataInterface.id)
+    } else {
+        null
     }
 }

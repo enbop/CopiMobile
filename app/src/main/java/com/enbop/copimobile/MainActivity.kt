@@ -2,15 +2,19 @@ package com.enbop.copimobile
 
 import android.app.Activity
 import android.app.ActivityManager
+import android.app.PendingIntent
+import android.content.BroadcastReceiver
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
 import android.content.ServiceConnection
 import android.content.pm.PackageManager
+import android.hardware.usb.UsbDevice
+import android.hardware.usb.UsbManager
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
-import android.os.Handler
 import android.os.IBinder
 import android.util.Log
 import android.widget.Toast
@@ -18,9 +22,19 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.foundation.layout.*
-import androidx.compose.material3.*
-import androidx.compose.runtime.*
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.Button
+import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.tooling.preview.Preview
@@ -39,7 +53,7 @@ class MainActivity : ComponentActivity() {
     private var isServiceBound = false
     private var isServiceRunning by mutableStateOf(false)
     private var serviceStatus by mutableStateOf<String?>(null)
-    
+
     private val openDocumentTree = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
         if (result.resultCode == Activity.RESULT_OK) {
             result.data?.data?.let { uri ->
@@ -52,8 +66,26 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    private val usbManager by lazy { getSystemService(Context.USB_SERVICE) as UsbManager }
+    private val usbPermissionString = "com.enbop.copimobile.USB_PERMISSION"
+
+    private val usbReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context, intent: Intent) {
+            if (usbPermissionString == intent.action) {
+                if (intent.getBooleanExtra(UsbManager.EXTRA_PERMISSION_GRANTED, false)) {
+                    startService()
+                } else {
+                    Toast.makeText(context, "USB permission denied", Toast.LENGTH_SHORT).show()
+                }
+            }
+        }
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+
+        val filter = IntentFilter(usbPermissionString)
+        registerReceiver(usbReceiver, filter, RECEIVER_NOT_EXPORTED)
 
         CopiService.serviceStatus.observe(this) { status ->
             isServiceRunning = status.isRunning
@@ -82,6 +114,15 @@ class MainActivity : ComponentActivity() {
         Log.d("CopiMobileDebug", "Copi core version: $v")
         checkNotificationPermission()
         checkServiceStatus()
+    }
+
+    override fun onDestroy() {
+        super.onDestroy()
+        try {
+            unregisterReceiver(usbReceiver)
+        } catch (e: Exception) {
+            // ignore
+        }
     }
 
 
@@ -116,11 +157,35 @@ class MainActivity : ComponentActivity() {
     }
 
 
+    private fun findCopiDevice(): UsbDevice? {
+        return usbManager.deviceList.values.find {
+            it.vendorId == 0x9527 && it.productId == 0xacdc
+        }
+    }
+
     private fun startCopiService() {
+        val device = findCopiDevice() ?: run {
+            Toast.makeText(this, "Copi device not found", Toast.LENGTH_SHORT).show()
+            return
+        }
+
+        if (usbManager.hasPermission(device)) {
+            startService()
+        } else {
+            // https://github.com/mik3y/usb-serial-for-android/issues/494#issuecomment-1529427605
+            val flags =
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) PendingIntent.FLAG_MUTABLE else 0
+            val permissionIntent = PendingIntent.getBroadcast(
+                this, 0, Intent(usbPermissionString), flags
+            )
+            usbManager.requestPermission(device, permissionIntent)
+        }
+    }
+
+    private fun startService() {
         val intent = Intent(this, CopiService::class.java).apply {
             action = CopiService.ACTION_START_SERVICE
         }
-
         startForegroundService(intent)
         bindToService()
     }
@@ -267,15 +332,15 @@ fun MainScreen(
             ) {
                 Text("Disconnect from Copi device")
             }
+        }
 
-            Spacer(modifier = Modifier.height(8.dp))
+        Spacer(modifier = Modifier.height(8.dp))
 
-            if (serviceStatus != null) {
-                Text(
-                    text = serviceStatus,
-                    modifier = Modifier.padding(16.dp)
-                )
-            }
+        if (serviceStatus != null) {
+            Text(
+                text = serviceStatus,
+                modifier = Modifier.padding(16.dp)
+            )
         }
     }
 }
